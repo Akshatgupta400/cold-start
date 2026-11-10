@@ -1,0 +1,15 @@
+# The challenge data must never be committed
+data/
+*.jsonl
+!example/*.jsonl
+
+# Run outputs and logs
+out.json
+ex.json
+oracle_out.json
+usage.jsonl
+.llm_cache/
+__pycache__/
+
+# Local run logs
+run*.log
