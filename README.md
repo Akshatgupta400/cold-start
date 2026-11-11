@@ -65,3 +65,6 @@ Most corrections land in one place:
 - "You missed loops in group Y": the group filter in `select_messages` in `xpert/loops.py`.
 
 Check with `oracle_test.py` (plumbing) and `check.py` (score) that nothing else moved.
+## Contributors
+
+- Kushagra Baiswar
