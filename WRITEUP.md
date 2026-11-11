@@ -1,8 +1,5 @@
 # Write-up
 
-> **TODO before submitting:** fill every `[[…]]` from a real run on `data/dev`
-> (`./run.sh data/dev out.json`, `python3 check.py data/dev out.json`, `python3 dev_tools/usage_report.py data/dev <in> <out>`).
-
 ## What I focused on, and why
 
 Open loops are 38 of the 74 data points (found 14, closed 14, help 10), so most of the effort went there. Circles (12) came
@@ -45,14 +42,15 @@ a valid file. Four stages:
 
 Testing without spending tokens: `oracle_test.py` swaps the model for the dev answer key and checks the plumbing. With perfect
 answers the pipeline keeps **51.7 / 56**, so post-processing loses little; the gap is 1:1 chats the key ties to an organisation
-and duplicate key entries (the organisation merge above costs 0.2 here and gains far more with a real model). `fuzz_test.py` feeds 25 runs of malformed replies and every output stays valid.
+and duplicate key entries (the organisation merge above costs 0.2 here and gains far more with a real model). `fuzz_test.py`
+feeds 25 runs of malformed replies and every output stays valid.
 
 | Dev set (56 points labelled) | Score |
 |---|---|
 | Naive starter | 5.4 |
 | Rules only (`NO_LLM=1`) | 18.7 |
 | Oracle (plumbing ceiling) | 51.7 |
-| With [[model]] | [[ ]] |
+| With `openai/gpt-oss-20b` (Groq) | **20.8** |
 
 ## Running it on a free tier
 
@@ -73,12 +71,22 @@ the price, so 20b stays.
 
 ## What it costs
 
-Model: **[[model name]]**. On the dev set: **$[[ ]] per 1,000 messages** ([[ ]] input and [[ ]] output tokens, [[ ]] calls,
-[[ ]] minutes).
+Model: **`openai/gpt-oss-20b` on Groq** ($0.075 / $0.30 per million input / output tokens). On the dev set: **$0.0054 per
+1,000 messages** ($0.024 for the 4,502 messages: 153,933 input and 42,600 output tokens, 42 calls, about 25 minutes).
 
-Estimated input tokens on dev (`estimate_tokens.py`): loops ≈131k (74%), people ≈41k (23%), structure ≈5k. On the hidden set the
+How that was measured: the final run made the 28 loop, help and goal calls (108,049 in, 28,399 out, 20 minutes); the
+organisations call and the 13 people calls came from the on-disk cache, so their tokens are taken from the earlier runs that
+made them with the same prompts (45,884 in, 14,201 out, about 4 minutes). The time is the free tier's: one call at a time under
+an 8,000 tokens-per-minute cap, which is close to the 25-minute budget. With parallel calls (`LLM_WORKERS`, default 6-8) on a
+tier without that cap it should take a few minutes; I could not measure that.
+
+Output is 22% of the tokens but 53% of the cost. Low reasoning effort keeps it there: at the default, reasoning alone used
+6,000 output tokens on one call.
+
+Measured input tokens on dev: loops and help ≈107k (70%), people ≈40k (26%), structure ≈5k. On the hidden set the
 loop share falls, since only the last 16 of ~42 days are read, while people and goals grow slowly with the number of people and
-earlier messages. I expect about [[ ]]k input tokens per 1,000 hidden messages, below the dev figure.
+earlier messages. Dev used 34k input tokens per 1,000 messages; I expect about 15k per 1,000 hidden messages (roughly the same
+loop reading over 16 days, people and goals growing more slowly than the message count), so well under $0.005 per 1,000.
 
 Where the money goes, and the levers: almost all of it is loop reading, input tokens. Each call repeats a ~900-token system prompt
 kept byte-identical so providers that cache prompt prefixes can discount it; bodies are clipped to 350 characters; bot feeds and
@@ -88,11 +96,13 @@ silent busy groups are thinned before any call.
 
 Revised after the dev runs; each point gives what I measured on dev and what I expect on the hidden set.
 
-- **Loop source message (the biggest loss).** A loop counts only if its source message is one the key accepts. On dev the model
-  found [[ ]] of the key's 74 loops (loops-found F1 [[ ]]), far below the 0.45-0.6 I first predicted. Three causes, in order:
-  the model is too selective (the rule fallback alone matches 19, the model 14 before the fixes, with only 8 shared); repeated
-  asks ("pls pay 2800" … "pls pay 3500 on this") where the key keeps several loops on one message and I can match only one; and
-  calls lost to the free tier's limits on the 1:1 packs, now retried or replaced by rule loops. I expect F1 around 0.2-0.35.
+- **Loop source message (the biggest loss).** A loop counts only if its source message is one the key accepts. On dev the
+  model matched 25 of the key's 74 loops with 106 of its own (loops-found F1 0.28), against 19 for the rules alone and far
+  below the 0.45-0.6 I first predicted. The causes: precision, as 81 of my loops are not in the key, 33 of them in the spouse chat,
+  where I log follow-ups on a topic the key tracks once ("buy shares", "confirm payment for Vayu", "update on share purchase"),
+  and 9 in one client group where staff are asked to change campaigns; repeated asks ("pls pay 2800" …
+  "pls pay 3500 on this") where the key keeps several loops on one message and only one can match; and, before the client
+  fixes, 1:1 chat packs lost to the free tier's limits. I expect F1 around 0.25-0.35 on the hidden set.
 - **Status (`done` is mostly invisible).** None of the key's 49 `done` loops on dev cites a closing message: the labels come
   from Arjun's own records, so most were closed off WhatsApp. My loops stay `open` without a closing message, so most matched
   loops have the wrong status, nearly all in the safe direction (false `done` costs a point). Guessing from age and type
@@ -110,6 +120,8 @@ Revised after the dev runs; each point gives what I measured on dev and what I e
   Radiant are not recognised as his, and Office and Farmhouse have no group chat of their own. Group chats are 34 of 40 right.
   About 8% of chats are 1:1 chats the key ties to an organisation (an employee's chat tied to the company); I always tie 1:1
   chats to the person, so those are lost by design. On the hidden set I expect 2-4 organisations missing.
-- **Goals.** The loop pass surfaced 0-2 goal signals on dev, where goals are not labelled. A match needs the same area and a
-  shared evidence message; I expect 0-2 matches and 1-3 goals the key does not have.
+- **Goals.** Unlabelled on dev, so unmeasured. The final run produced the cap of 8. About 5 look real (an investment
+  portfolio, a new car, building an AI team, the Nexus AI product, a home upgrade before Diwali) and about 3 are one-off tasks
+  promoted to goals ("vacuum kids room", buying a fingerprint device). A match needs the same area and a shared evidence
+  message; I expect 1-3 matches and 3-5 goals the key does not have, which cost precision.
 - **Voice transcripts** (~50 in hidden, none in dev) are untested; they are read like text, marked `[voice]`.
